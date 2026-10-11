@@ -17,7 +17,8 @@ const upload = multer({
 
 const origensPermitidas = [
    'http://localhost:5173',
-   'https://painel-admin-amber-pi.vercel.app'
+   'https://painel-admin-amber-pi.vercel.app',
+   'https://angelino-eurico-dev.vercel.app/'
 ]
 
 app.use(cors({
