@@ -926,4 +926,56 @@ app.put('/editarprodutos/:id', upload.array('imagens', 5), async (req, res) => {
 
 })
 
+app.post('/mensgemportffolio', upload.none(), async (req, res) => {
+
+   const { name, email, messege } = req.body
+
+   if (!name || !email || !messege) {
+      return res.json({
+         erro: true,
+         mensagem: 'Todos os campos devem ser textos válidos'
+      })
+   }
+
+   if (! typeof name === 'string' || ! typeof email === 'string' || ! typeof messege === 'string') {
+      return res.json({
+         erro: true,
+         mensagem: 'Todos os campos devem ser textos válidos'
+      })
+   }
+
+   const regex = {
+      name: /^[A-Za-zÀ-ÿ\s'-]+$/,
+      email: /^[^\s@]+@[^\s@]+\.[^\s@]+$/,
+      message: /\S/
+   }
+
+   if (!regex.name.test(name.trim()) || !regex.email.test(email.trim())
+      || !regex.message.test(messege.trim())) {
+      return res.json({
+         erro: true,
+         mensagem: 'Valores  Inválidos'
+      })
+   }
+
+   try {
+      await transporter.sendMail({
+         from: process.env.EMAIL_USER,
+         to: email,
+         subject: name,
+         text: messege,
+      })
+
+      return res.json({
+         erro: false,
+      })
+
+   } catch (erro) {
+      return res.json({
+         erro: true,
+         mensagem: 'Mensagem Não Enviada'
+      })
+   }
+})
+
 module.exports = app;
