@@ -135,7 +135,7 @@ app.post('/entrar', upload.none(), async (req, res) => {
                      })
                   }
 
-                  criarCookie(res, 'sessao', token, 2 * 60 * 60 * 1000);
+                  criarCookie(res, 'sessao', token, 2 * 60 * 60 * 1000)
                   return res.json({
                      mensagem: 'Sessão Iniciada com sucesso',
                      error: false
@@ -807,6 +807,7 @@ app.get('/imagem/:id', async (req, res) => {
 
 })
 
+
 app.put('/editarprodutos/:id', upload.array('imagens', 5), async (req, res) => {
 
    // Permitir 
@@ -979,4 +980,678 @@ app.post('/mensgemportffolio', upload.none(), async (req, res) => {
    }
 })
 
-module.exports = app;
+
+
+
+// Loja Onlie 
+
+// Verificar sessao
+async function usuarioSessao(token) {
+
+   try {
+      const sql = `
+         SELECT usuario_id, expira_em
+         FROM sessoes_usuario
+         WHERE token = ?
+         AND expira_em > NOW()
+      `
+
+      const [sessao] = await db.promise().query(sql, [token])
+
+      if (sessao.length === 0) {
+         return {
+            success: false,
+            message: 'Sessão não encontrada.'
+         }
+      }
+
+      return {
+         success: true,
+         message: 'Sessão encontrada.',
+         usuarioId: sessao[0].usuario_id
+      }
+
+   } catch (error) {
+      return {
+         success: false,
+         message: 'Erro ao verificar a sessão.'
+      }
+   }
+}
+
+
+app.get('/productsStore', async (req, res) => {
+
+   const limit = 20
+   const offset = Number(req.query.offset) || 0
+
+   try {
+
+      const sql = `SELECT * FROM produtos
+         ORDER BY id LIMIT ? OFFSET ?`
+      const [products] = await db.promise().query(
+         sql,
+         [limit, offset]
+      )
+      return res.json(products)
+
+   } catch (error) {
+      return res.status(500).json({
+         erro: 'Erro interno do servidor'
+      })
+   }
+
+})
+
+app.get('/categoriasStores', upload.none(), async (req, res) => {
+
+   const newProducts = []
+   try {
+      const sql = `
+      SELECT *
+      FROM produtos`
+
+      const [products] = await db.promise().query(sql)
+
+      products.forEach((product) => {
+         const existe = newProducts.some(
+            (item) => item.categoria === product.categoria
+         )
+
+         if (!existe) {
+            newProducts.push(product)
+         }
+      })
+      return res.json(newProducts)
+
+   } catch (error) {
+      return res.status(500).json({
+         erro: 'Erro interno do servidor'
+      })
+   }
+})
+
+
+app.get('/searchStore/:action/:values', upload.none(), async (req, res) => {
+   try {
+      const { action, values } = req.params
+
+      const limit = Number(req.query.limit) || 10
+      const offset = Number(req.query.offset) || 0
+
+      let sql
+      let params
+
+      if (action === 'Categories') {
+         sql = `
+            SELECT *
+            FROM produtos
+            WHERE categoria = ?
+            ORDER BY id
+            LIMIT ? OFFSET ?
+         `
+
+         params = [values, limit, offset]
+
+      } else if (action === 'Search') {
+         sql = `
+            SELECT *
+            FROM produtos
+            WHERE nome LIKE ?
+               OR descricao LIKE ? OR categoria LIKE ? OR promocao LIKE ?
+            ORDER BY id
+            LIMIT ? OFFSET ?
+         `
+
+         const pesquisa = `%${values}%`
+         params = [pesquisa, pesquisa, pesquisa, pesquisa, limit, offset]
+
+      } else {
+         return res.status(400).json({
+            success: false,
+            message: 'Tipo de pesquisa inválido.'
+         })
+      }
+
+      const [produtos] = await db.promise().query(sql, params)
+
+      return res.status(200).json({
+         success: true,
+         produtos: produtos
+      })
+
+   } catch (error) {
+      return res.status(500).json({
+         success: false,
+         message: 'Erro ao pesquisar produtos.'
+      })
+   }
+})
+
+app.get('/detailsStore/:id', async (req, res) => {
+   const { id } = req.params;
+
+   try {
+      // Buscar o produto
+      const [products] = await db.promise().query(
+         `SELECT id, nome, descricao, preco, categoria, stock, promocao
+             FROM produtos
+             WHERE id = ?`,
+         [id]
+      );
+
+      if (products.length === 0) {
+         return res.status(404).json({
+            erro: 'Produto não encontrado'
+         });
+      }
+
+      // Percorrer os produtos encontrados
+      for (const product of products) {
+
+         // Buscar imagens
+         const [images] = await db.promise().query(
+            `SELECT id, produto_id, arquivo, tipo
+                 FROM imagens
+                 WHERE produto_id = ?`,
+            [product.id]
+         );
+
+         // Buscar especificações
+         const [specifications] = await db.promise().query(
+            `SELECT *
+                 FROM especificacoes
+                 WHERE produto_id = ?`,
+            [product.id]
+         );
+
+         // Buscar outras especificações
+         const [otherSpecifications] = await db.promise().query(
+            `SELECT *
+                 FROM outras_especificacoes
+                 WHERE produto_id = ?`,
+            [product.id]
+         );
+
+         // Adicionar os dados relacionados ao produto
+         product.images = images;
+         product.specifications = specifications;
+         product.otherSpecifications = otherSpecifications;
+      }
+
+      return res.json(products);
+
+   } catch (error) {
+      console.error(error);
+
+      return res.status(500).json({
+         erro: 'Erro interno do servidor'
+      });
+   }
+})
+
+app.post('/addCart', upload.none(), async (req, res) => {
+
+   const {
+      produto_id,
+      preco,
+      quantidade,
+      promocao,
+      browser_id,
+      espSelecionado,
+      outrasEspSelecionado
+   } = req.body
+
+   try {
+      const vefSql = ` SELECT * FROM carrinho WHERE 
+      produto_id = ? AND navegador_id = ?`;
+
+      const [existe] = await db.promise().query(
+         vefSql,
+         [produto_id, browser_id]
+      );
+
+      if (existe.length > 0) {
+         return res.status(409).json({ mensagem: 'Produto ja existe noo carrinho ' })
+      }
+
+      // 1. Adicionar produto ao carrinho
+      const sqlCart = `
+            INSERT INTO carrinho
+            (
+                produto_id,
+                navegador_id,
+                preco,
+                quantidade,
+                promocao
+            )
+            VALUES (?, ?, ?, ?, ?)
+        `;
+
+      const [cartResult] = await db.promise().query(sqlCart, [
+         produto_id,
+         browser_id,
+         preco,
+         quantidade,
+         promocao
+      ]);
+
+      // ID do item criado no carrinho
+      const carrinhoId = cartResult.insertId;
+
+      // 2. Adicionar especificação selecionada
+      if (espSelecionado) {
+         const sqlEsp = `
+                INSERT INTO especificacoes_selecionadas
+                (
+                    carrinho_id,
+                    valor
+                )
+                VALUES (? , ?)
+            `;
+
+         await db.promise().query(sqlEsp, [
+            carrinhoId,
+            espSelecionado
+         ]);
+      }
+
+      // 3. Adicionar outra especificação selecionada
+      if (outrasEspSelecionado) {
+         const sqlOtherEsp = `
+                INSERT INTO outras_especificacoes_selecionadas
+                (
+                    carrinho_id,
+                    valor
+                )
+                VALUES (?, ?)
+            `;
+
+         await db.promise().query(sqlOtherEsp, [
+            carrinhoId,
+            outrasEspSelecionado
+         ]);
+      }
+
+      return res.status(201).json({
+         mensagem: 'Produto adicionado ao carrinho',
+         success: true
+      });
+
+   } catch (error) {
+      return res.status(500).json({
+         erro: 'Erro interno do servidor'
+      });
+   }
+})
+
+
+app.post('/entrarUsaurio', upload.none(), async (req, res) => {
+
+   try {
+
+      const { email, password, browserId } = req.body
+
+      // 1. Verificar campos obrigatórios
+      if (!email || !password) {
+         return res.status(400).json({
+            success: false,
+            message: 'Preencha todos os campos.'
+         })
+      }
+
+      // 2. Verificar tipos de dados
+      if (
+         typeof email !== 'string' ||
+         typeof password !== 'string'
+      ) {
+         return res.status(400).json({
+            success: false,
+            message: 'Formato de dados inválido.'
+         })
+      }
+
+      // 3. Procurar utilizador
+      const [users] = await db.promise().query(
+         'SELECT * FROM usuarios WHERE email = ?',
+         [email.trim()]
+      )
+
+      if (users.length === 0) {
+         return res.status(401).json({
+            success: false,
+            message: 'E-mail ou palavra-passe incorretos.'
+         })
+      }
+
+      const user = users[0]
+
+      if (await compararSenhas(password, user.senha)) {
+
+         const token = crypto.randomBytes(32).toString("hex")
+         criarCookie(res, 'sessaoUsuario', token, 6 * 60 * 60 * 1000)
+
+         const usuarioId = user.id
+
+         const expiracao = new Date(
+            Date.now() + 6 * 60 * 60 * 1000
+         )
+
+         const dataMysql = expiracao
+            .toISOString()
+            .slice(0, 19)
+            .replace("T", " ")
+
+         const sqlSessao = `INSERT INTO sessoes_usuario
+          (usuario_id, token, expira_em) VALUES (?, ?, ?)`
+         await db.promise().query(sqlSessao, [usuarioId, token, dataMysql])
+
+         const [itensCarrinho] = await db.promise().query('SELECT * FROM carrinho WHERE navegador_id = ? ', [browserId])
+
+         if (itensCarrinho.length > 0) {
+            const sqlAutoSave = ` UPDATE carrinho SET usuario_id = ?
+             WHERE navegador_id = ? AND usuario_id IS NULL`
+            await db.promise().query(sqlAutoSave, [usuarioId, browserId])
+         }
+
+         return res.status(200).json({
+            success: true,
+            message: 'Sessão iniciada com sucesso.'
+         })
+      } else {
+         return res.status(200).json({
+            success: false,
+            message: 'Palavara passe incorretas'
+         })
+      }
+
+
+   } catch (error) {
+
+      console.error('Erro no login:', error)
+
+      return res.status(500).json({
+         success: false,
+         message: 'Erro interno ao iniciar sessão.'
+      })
+   }
+
+})
+
+app.post('/getCartItems', upload.none(), async (req, res) => {
+
+   const { browserId } = req.body
+   const token = req.cookies.sessaoUsuario
+   const productsCart = []
+   let products = []
+
+   if (token) {
+      const result = await usuarioSessao(token)
+      if (result.success) {
+         const usuarioId = result.usuarioId
+         const sqlCar = `SELECT * carrinho WHERE usuario_id = ?`
+         const [itensCarrinho] = await db.promise().query(
+            sqlCar,
+            [usuarioId]
+         )
+         products = itensCarrinho
+
+      } else {
+
+         const sql = `
+            SELECT *
+            FROM carrinho
+            WHERE navegador_id = ?
+         `
+         const [itensCarrinho] = await db.promise().query(
+            sql,
+            [browserId]
+         )
+         products = itensCarrinho
+      }
+   } else {
+      const sql = `
+         SELECT *
+         FROM carrinho
+         WHERE navegador_id = ?
+      `
+      const [itensCarrinho] = await db.promise().query(
+         sql,
+         [browserId]
+      )
+      products = itensCarrinho
+   }
+
+   for (const product of products) {
+      // Nome do produto
+      const [nomes] = await db.promise().query(
+         `
+         SELECT nome
+         FROM produtos
+         WHERE id = ?
+         `,
+         [product.produto_id]
+      )
+
+      // Especificações selecionadas
+      const [especificacoes] = await db.promise().query(
+         `
+         SELECT *
+         FROM especificacoes_selecionadas
+         WHERE carrinho_id = ?
+         `,
+         [product.id]
+      )
+
+
+      // Outras especificações
+      const [outras_especificacoes] = await db.promise().query(
+         `
+         SELECT *
+         FROM outras_especificacoes_selecionadas
+         WHERE carrinho_id = ?
+         `,
+         [product.id]
+      )
+
+      productsCart.push({
+         ...product,
+         nome: nomes[0]?.nome,
+         especificacoes_selecionadas: especificacoes,
+         outras_especificacoes_selecionadas: outras_especificacoes
+      })
+   }
+
+
+   return res.json(productsCart)
+})
+
+
+app.post('/register', upload.none(), async (req, res) => {
+
+   const {
+      nome,
+      sobrenome,
+      email,
+      telefone,
+      senha, browserId
+   } = req.body
+
+   // Regex
+   const regexNome = /^[A-Z][a-zÀ-ÿ]*$/
+   const regexEmail = /^[^\s@]+@[^\s@]+\.[A-Za-z]{2,}$/
+   const regexTelefone = /^9\d{8}$/
+   const regexSenha = /^.{8,}$/
+
+   // Campos obrigatórios
+   if (
+      !nome?.trim() ||
+      !sobrenome?.trim() ||
+      !email?.trim() ||
+      !telefone?.trim() ||
+      !senha?.trim() ||
+      !browserId?.trim()
+   ) {
+      return res.status(400).json({
+         success: false,
+         message: 'Preencha todos os campos.'
+      })
+   }
+
+   // Nome
+   if (!regexNome.test(nome)) {
+      return res.status(400).json({
+         success: false,
+         message: 'Nome inválido.'
+      })
+   }
+
+   // Sobrenome
+   if (!regexNome.test(sobrenome)) {
+      return res.status(400).json({
+         success: false,
+         message: 'Sobrenome inválido.'
+      })
+   }
+
+   // Email
+   if (!regexEmail.test(email)) {
+      return res.status(400).json({
+         success: false,
+         message: 'E-mail inválido.'
+      })
+   }
+
+   // Telefone
+   if (!regexTelefone.test(telefone)) {
+      return res.status(400).json({
+         success: false,
+         message: 'Número de telefone inválido.'
+      })
+   }
+
+   // Senha
+   if (!regexSenha.test(senha)) {
+      return res.status(400).json({
+         success: false,
+         message: 'A senha deve ter pelo menos 8 caracteres.'
+      })
+   }
+
+
+   try {
+
+      // Verificar se o email já existe
+      const sqlExiste = `
+         SELECT * FROM usuarios
+         WHERE email = ?
+      `
+
+      const [existe] = await db.promise().query(sqlExiste, [email])
+
+      if (existe.length > 0) {
+         return res.status(400).json({
+            success: false,
+            message: 'Email já cadastrado.'
+         })
+      }
+
+      const senhaHash = await bcrypt.hash(senha, 10)
+
+      // Inserir usuário
+      const sql = `
+         INSERT INTO usuarios
+         (nome, sobrenome, email, telefone, senha)
+         VALUES (?, ?, ?, ?, ?)
+      `
+
+      const [result] = await db.promise().query(sql, [
+         nome,
+         sobrenome,
+         email,
+         telefone,
+         senhaHash
+      ])
+
+      if (result.affectedRows === 1) {
+
+         const usuarioId = result.insertId
+         const token = crypto.randomBytes(32).toString("hex")
+
+         const expiracao = new Date(
+            Date.now() + 6 * 60 * 60 * 1000
+         )
+
+         const dataMysql = expiracao
+            .toISOString()
+            .slice(0, 19)
+            .replace("T", " ")
+
+         const sqlSessao = `INSERT INTO sessoes_usuario
+          (usuario_id, token, expira_em) VALUES (?, ?, ?)`
+         const [iniciarSessao] = await db.promise().query(sqlSessao, [usuarioId, token, dataMysql])
+
+         const [itensCarrinho] = await db.promise().query('SELECT * FROM carrinho WHERE navegador_id = ? ', [browserId])
+
+         if (itensCarrinho.length > 0) {
+            const sqlAutoSave = ` UPDATE carrinho SET usuario_id = ?
+             WHERE navegador_id = ? AND usuario_id IS NULL`
+            await db.promise().query(sqlAutoSave, [usuarioId, browserId])
+         }
+
+         if (iniciarSessao.affectedRows === 1) {
+            criarCookie(res, 'sessaoUsuario', token, 6 * 60 * 60 * 1000)
+            return res.status(201).json({
+               success: true,
+               message: 'Conta criada com sucesso.',
+            })
+         }
+      }
+
+      return res.status(201).json({
+         success: true,
+         message: 'Conta criada com sucesso.',
+      })
+
+   } catch (error) {
+      return res.status(500).json({
+         success: false,
+         message: 'Erro ao criar a conta.'
+      })
+   }
+})
+
+
+app.get('/verificarSessao', async (req, res) => {
+
+   const token = req.cookies.sessaoUsuario
+
+   if (!token) {
+      return res.status(401).json({
+         success: false,
+         message: 'Sessão não encontrada.'
+      })
+   }
+
+   const resultado = await usuarioSessao(token)
+   if (!resultado.success) {
+      return res.status(401).json(resultado)
+   }
+   const usuarioId = resultado.usuarioId
+
+   const sql = `
+      SELECT *
+      FROM usuarios
+      WHERE id = ?
+   `
+   const [dadosUsuario] = await db.promise().query(sql, [usuarioId])
+
+   return res.status(200).json({
+      success: true,
+      usuario: dadosUsuario
+   })
+})
+
+
+app.listen(3000)
+// module.exports = app;
