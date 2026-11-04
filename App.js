@@ -1972,5 +1972,4 @@ app.get('/verificarSessao', async (req, res) => {
    })
 })
 
-// module.exports = app;
-app.listen(3000)
+module.exports = app;
