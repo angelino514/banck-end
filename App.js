@@ -928,6 +928,8 @@ app.put('/editarprodutos/:id', upload.array('imagens', 5), async (req, res) => {
 
 })
 
+
+
 app.post('/mensgemportffolio', upload.none(), async (req, res) => {
 
    const { name, email, messege } = req.body
@@ -981,10 +983,7 @@ app.post('/mensgemportffolio', upload.none(), async (req, res) => {
 })
 
 
-
-
 // Loja Onlie 
-
 // Verificar sessao
 async function usuarioSessao(token) {
 
@@ -1019,6 +1018,132 @@ async function usuarioSessao(token) {
    }
 }
 
+app.post('/favoritosAdd', upload.none(), async (req, res) => {
+
+   const token = req.cookies.sessaoUsuario
+   const { produto_id, browserId } = req.body
+
+   if (!produto_id || !browserId) {
+      return res.status(500).json({
+         message: 'Erro ao processar dados',
+         success: false
+      })
+   }
+
+   let sql
+   let params
+
+   async function existeFav({ condicao, valor }) {
+      const sql = `SELECT id FROM favoritos WHERE ${condicao} = ? AND produto_id = ?`
+      const [existe] = await db.promise().query(sql, [valor, produto_id])
+      return existe.length === 0
+   }
+
+   if (!token) {
+      if (await existeFav({ condicao: 'browser_id', valor: browserId })) {
+         sql = `INSERT INTO favoritos (produto_id, browser_id , usuario_id) VALUES (? ,? , NULL)`
+         params = [produto_id, browserId]
+      }
+   } else {
+      const usuario = await usuarioSessao(token)
+      if (usuario.success) {
+         if (await existeFav({ condicao: 'usuario_id', valor: usuario.usuarioId })) {
+            sql = `INSERT INTO favoritos(produto_id, browser_id , usuario_id) VALUES (? ,? ,?)`
+            params = [produto_id, browserId, usuario.usuarioId]
+         }
+      }
+   }
+
+   await db.promise().query(sql, params)
+   return res.status(200).json({ success: true, message: 'Item Adicionado aos favoritos' })
+})
+
+app.delete('/deleteFav', upload.none(), async (req, res) => {
+
+   try {
+
+      const { produto_id, browserId } = req.body
+      const token = req.cookies.sessaoUsuario
+
+      if (!produto_id || !browserId) {
+         return res.status(400).json({
+            success: false,
+            message: 'Dados inválidos'
+         })
+      }
+
+      if (token) {
+
+         const result = await usuarioSessao(token)
+
+         if (!result.success) {
+            return res.status(401).json({
+               success: false,
+               message: 'Sessão inválida'
+            })
+         }
+
+         await db.promise().query(
+            `DELETE FROM favoritos
+             WHERE produto_id = ? AND usuario_id = ?`,
+            [produto_id, result.usuarioId]
+         )
+
+      } else {
+
+         await db.promise().query(
+            `DELETE FROM favoritos
+             WHERE produto_id = ? AND browser_id = ?`,
+            [produto_id, browserId]
+         )
+
+      }
+      return res.json({
+         success: true,
+         message: 'Favorito eliminado'
+      })
+
+   } catch (err) {
+      return res.status(500).json({
+         success: false,
+         message: 'Erro ao eliminar favorito'
+      })
+   }
+})
+
+app.post('/pegarFav', upload.none(), async (req, res) => {
+
+   const token = req.cookies.sessaoUsuario
+   const { browserId } = req.body
+
+   if (!token) {
+      await favoritos({ condicao: 'browser_id', valor: browserId })
+   } else {
+      const usuario = await usuarioSessao(token)
+      if (usuario.success) {
+         await favoritos({ condicao: 'usuario_id', valor: usuario.usuarioId })
+      }
+   }
+
+   async function favoritos({ condicao, valor }) {
+      const sql = `
+      SELECT
+         favoritos.id AS favorito_id,
+         favoritos.produto_id,
+         produtos.*
+      FROM favoritos
+      INNER JOIN produtos
+      ON favoritos.produto_id = produtos.id
+      WHERE favoritos.${condicao} = ?`
+
+      const [itens] = await db.promise().query(sql, [valor])
+      return res.status(200).json({
+         success: true,
+         favoritos: itens
+      })
+   }
+
+})
 
 app.get('/productsStore', async (req, res) => {
 
@@ -1050,9 +1175,7 @@ app.get('/categoriasStores', upload.none(), async (req, res) => {
       const sql = `
       SELECT *
       FROM produtos`
-
       const [products] = await db.promise().query(sql)
-
       products.forEach((product) => {
          const existe = newProducts.some(
             (item) => item.categoria === product.categoria
@@ -1072,9 +1195,31 @@ app.get('/categoriasStores', upload.none(), async (req, res) => {
 })
 
 
-app.get('/searchStore/:action/:values', upload.none(), async (req, res) => {
+app.post('/searchStore/:action/:values', upload.none(), async (req, res) => {
+
    try {
+
+      const { browserId } = req.body
       const { action, values } = req.params
+
+      if (!action || !values || !browserId) {
+         return res.status(500).json({
+            success: false,
+            message: 'Erro ao pesquisar'
+         })
+      }
+
+      const sqlExsite = `SELECT id FROM historico_pesquisas WHERE browser_id = ? AND pesquisa LIKE ? LIMIT 1`
+
+      const [existeValues] = await db.promise().query(sqlExsite, [browserId, values])
+
+      if (existeValues.length === 0) {
+         await db.promise().query(
+            `INSERT INTO historico_pesquisas (browser_id, pesquisa)
+         VALUES (?, ?)`,
+            [browserId, values]
+         )
+      }
 
       const limit = Number(req.query.limit) || 10
       const offset = Number(req.query.offset) || 0
@@ -1112,9 +1257,7 @@ app.get('/searchStore/:action/:values', upload.none(), async (req, res) => {
             message: 'Tipo de pesquisa inválido.'
          })
       }
-
       const [produtos] = await db.promise().query(sql, params)
-
       return res.status(200).json({
          success: true,
          produtos: produtos
@@ -1190,8 +1333,24 @@ app.get('/detailsStore/:id', async (req, res) => {
    }
 })
 
-app.post('/addCart', upload.none(), async (req, res) => {
+app.post('/historicoPesquisas', upload.none(), async (req, res) => {
 
+   const { browserId } = req.body
+   if (!browserId) {
+      return res.status(400).json({
+         message: 'Identificador do navegador não fornecido',
+         success: false
+      })
+   }
+
+   const sql = `SELECT id, pesquisa FROM historico_pesquisas
+        WHERE browser_id = ? ORDER BY id DESC LIMIT 10`
+   const [pesquisas] = await db.promise().query(sql, [browserId])
+   return res.json(pesquisas)
+
+})
+
+app.post('/addCart', upload.none(), async (req, res) => {
    const {
       produto_id,
       preco,
@@ -1203,88 +1362,105 @@ app.post('/addCart', upload.none(), async (req, res) => {
    } = req.body
 
    try {
-      const vefSql = ` SELECT * FROM carrinho WHERE 
-      produto_id = ? AND navegador_id = ?`;
+      const token = req.cookies.sessaoUsuario
+      let usuarioId = null
 
-      const [existe] = await db.promise().query(
-         vefSql,
-         [produto_id, browser_id]
-      );
+      // 1. Verificar sessão
+      if (token) {
+         const sessao = await usuarioSessao(token)
 
-      if (existe.length > 0) {
-         return res.status(409).json({ mensagem: 'Produto ja existe noo carrinho ' })
+         if (!sessao.success) {
+            return res.status(401).json({
+               success: false,
+               mensagem: 'Sessão inválida ou expirada'
+            })
+         }
+
+         usuarioId = sessao.usuarioId
       }
 
-      // 1. Adicionar produto ao carrinho
-      const sqlCart = `
-            INSERT INTO carrinho
-            (
-                produto_id,
-                navegador_id,
-                preco,
-                quantidade,
-                promocao
-            )
-            VALUES (?, ?, ?, ?, ?)
-        `;
+      // 2. Verificar se o produto já existe
+      let sqlVerificar
+      let valoresVerificar
 
+      if (usuarioId) {
+         sqlVerificar = `
+            SELECT id FROM carrinho
+            WHERE produto_id = ?
+            AND usuario_id = ?
+         `
+
+         valoresVerificar = [produto_id, usuarioId]
+
+      } else {
+         sqlVerificar = `
+            SELECT id FROM carrinho
+            WHERE produto_id = ?
+            AND navegador_id = ?
+            AND usuario_id IS NULL
+         `
+         valoresVerificar = [produto_id, browser_id]
+      }
+
+      const [existe] = await db.promise().query(sqlVerificar, valoresVerificar)
+      if (existe.length > 0) {
+         return res.status(409).json({
+            success: false,
+            mensagem: 'Produto já existe no carrinho'
+         })
+      }
+      // 3. Inserir produto no carrinho
+      const sqlCart = `
+         INSERT INTO carrinho (
+            produto_id,
+            navegador_id,
+            preco,
+            quantidade,
+            promocao,
+            usuario_id
+         )
+         VALUES (?, ?, ?, ?, ?, ?)`
       const [cartResult] = await db.promise().query(sqlCart, [
          produto_id,
          browser_id,
          preco,
          quantidade,
-         promocao
-      ]);
+         promocao,
+         usuarioId
+      ])
 
-      // ID do item criado no carrinho
-      const carrinhoId = cartResult.insertId;
+      const carrinhoId = cartResult.insertId
 
-      // 2. Adicionar especificação selecionada
+      // 4. Guardar especificação selecionada
       if (espSelecionado) {
-         const sqlEsp = `
-                INSERT INTO especificacoes_selecionadas
-                (
-                    carrinho_id,
-                    valor
-                )
-                VALUES (? , ?)
-            `;
-
-         await db.promise().query(sqlEsp, [
-            carrinhoId,
-            espSelecionado
-         ]);
+         await db.promise().query(`
+            INSERT INTO especificacoes_selecionadas
+            (carrinho_id, valor)
+            VALUES (?, ?)
+         `, [carrinhoId, espSelecionado])
       }
 
-      // 3. Adicionar outra especificação selecionada
+      // 5. Guardar outra especificação
       if (outrasEspSelecionado) {
-         const sqlOtherEsp = `
-                INSERT INTO outras_especificacoes_selecionadas
-                (
-                    carrinho_id,
-                    valor
-                )
-                VALUES (?, ?)
-            `;
-
-         await db.promise().query(sqlOtherEsp, [
-            carrinhoId,
-            outrasEspSelecionado
-         ]);
+         await db.promise().query(`
+            INSERT INTO outras_especificacoes_selecionadas
+            (carrinho_id, valor)
+            VALUES (?, ?)
+         `, [carrinhoId, outrasEspSelecionado])
       }
 
       return res.status(201).json({
-         mensagem: 'Produto adicionado ao carrinho',
-         success: true
-      });
+         success: true,
+         mensagem: 'Produto adicionado ao carrinho'
+      })
 
    } catch (error) {
       return res.status(500).json({
+         success: false,
          erro: 'Erro interno do servidor'
-      });
+      })
    }
 })
-
 
 app.post('/entrarUsaurio', upload.none(), async (req, res) => {
 
@@ -1367,9 +1543,6 @@ app.post('/entrarUsaurio', upload.none(), async (req, res) => {
 
 
    } catch (error) {
-
-      console.error('Erro no login:', error)
-
       return res.status(500).json({
          success: false,
          message: 'Erro interno ao iniciar sessão.'
@@ -1380,92 +1553,115 @@ app.post('/entrarUsaurio', upload.none(), async (req, res) => {
 
 app.post('/getCartItems', upload.none(), async (req, res) => {
 
-   const { browserId } = req.body
-   const token = req.cookies.sessaoUsuario
-   const productsCart = []
-   let products = []
+   try {
 
-   if (token) {
-      const result = await usuarioSessao(token)
-      if (result.success) {
-         const usuarioId = result.usuarioId
-         const sqlCar = `SELECT * carrinho WHERE usuario_id = ?`
-         const [itensCarrinho] = await db.promise().query(
-            sqlCar,
-            [usuarioId]
-         )
-         products = itensCarrinho
+      const { browserId } = req.body
+      const token = req.cookies.sessaoUsuario
 
-      } else {
+      let condicao
+      let valor
 
-         const sql = `
-            SELECT *
-            FROM carrinho
-            WHERE navegador_id = ?
-         `
-         const [itensCarrinho] = await db.promise().query(
-            sql,
-            [browserId]
-         )
-         products = itensCarrinho
+      if (token) {
+
+         const result = await usuarioSessao(token)
+
+         if (result.success) {
+            condicao = 'usuario_id'
+            valor = result.usuarioId
+         }
       }
-   } else {
+
+      if (!condicao) {
+
+         if (!browserId) {
+            return res.status(400).json({
+               success: false,
+               message: 'Identificador do navegador não fornecido'
+            })
+         }
+
+         condicao = 'navegador_id'
+         valor = browserId
+      }
+
       const sql = `
-         SELECT *
-         FROM carrinho
-         WHERE navegador_id = ?
+         SELECT
+            c.*,
+            p.nome AS nome,
+
+            es.id AS especificacao_id,
+            es.valor AS especificacao_valor,
+
+            oes.id AS outra_especificacao_id,
+            oes.valor AS outra_especificacao_valor
+
+         FROM carrinho AS c
+
+         INNER JOIN produtos AS p
+            ON c.produto_id = p.id
+
+         LEFT JOIN especificacoes_selecionadas AS es
+            ON c.id = es.carrinho_id
+
+         LEFT JOIN outras_especificacoes_selecionadas AS oes
+            ON c.id = oes.carrinho_id
+
+         WHERE c.${condicao} = ?
       `
-      const [itensCarrinho] = await db.promise().query(
-         sql,
-         [browserId]
-      )
-      products = itensCarrinho
-   }
 
-   for (const product of products) {
-      // Nome do produto
-      const [nomes] = await db.promise().query(
-         `
-         SELECT nome
-         FROM produtos
-         WHERE id = ?
-         `,
-         [product.produto_id]
-      )
+      const [products] = await db.promise().query(sql, [valor])
 
-      // Especificações selecionadas
-      const [especificacoes] = await db.promise().query(
-         `
-         SELECT *
-         FROM especificacoes_selecionadas
-         WHERE carrinho_id = ?
-         `,
-         [product.id]
-      )
+      const productsCart = new Map()
 
+      for (const product of products) {
 
-      // Outras especificações
-      const [outras_especificacoes] = await db.promise().query(
-         `
-         SELECT *
-         FROM outras_especificacoes_selecionadas
-         WHERE carrinho_id = ?
-         `,
-         [product.id]
-      )
+         if (!productsCart.has(product.id)) {
 
-      productsCart.push({
-         ...product,
-         nome: nomes[0]?.nome,
-         especificacoes_selecionadas: especificacoes,
-         outras_especificacoes_selecionadas: outras_especificacoes
+            productsCart.set(product.id, {
+               ...product,
+               especificacoes_selecionadas: [],
+               outras_especificacoes_selecionadas: []
+            })
+         }
+
+         const item = productsCart.get(product.id)
+
+         if (product.especificacao_id &&
+            !item.especificacoes_selecionadas.some(
+               e => e.id === product.especificacao_id
+            )) {
+
+            item.especificacoes_selecionadas.push({
+               id: product.especificacao_id,
+               valor: product.especificacao_valor
+            })
+         }
+
+         if (product.outra_especificacao_id &&
+            !item.outras_especificacoes_selecionadas.some(
+               e => e.id === product.outra_especificacao_id
+            )) {
+
+            item.outras_especificacoes_selecionadas.push({
+               id: product.outra_especificacao_id,
+               valor: product.outra_especificacao_valor
+            })
+         }
+      }
+
+      return res.json({
+         success: true,
+         productsCart: [...productsCart.values()]
+      })
+
+   } catch (error) {
+
+      return res.status(500).json({
+         success: false,
+         message: 'Erro ao carregar carrinho'
       })
    }
-
-
-   return res.json(productsCart)
 })
-
 
 app.post('/register', upload.none(), async (req, res) => {
 
@@ -1621,6 +1817,62 @@ app.post('/register', upload.none(), async (req, res) => {
    }
 })
 
+app.delete('/deleteUserSession', upload.none(), async (req, res) => {
+
+   try {
+
+      const token = req.cookies.sessaoUsuario
+
+      if (!token) {
+         return res.status(401).json({
+            success: false,
+            message: 'Sessão não encontrada'
+         })
+      }
+      const usuario = await usuarioSessao(token)
+      if (!usuario.success) {
+         return res.status(401).json({
+            success: false,
+            message: 'Sessão inválida'
+         })
+      }
+
+      const sqlDelete = `
+         DELETE FROM sessoes_usuario
+         WHERE usuario_id = ? AND token = ?
+      `
+
+      const [deleteSessao] = await db.promise().query(
+         sqlDelete,
+         [usuario.usuarioId, token]
+      )
+
+      if (deleteSessao.affectedRows === 0) {
+         return res.status(404).json({
+            success: false,
+            message: 'Sessão não encontrada'
+         })
+      }
+      res.clearCookie('sessaoUsuario', {
+         httpOnly: true,
+         secure: false,
+         sameSite: 'lax'
+      })
+
+      return res.status(200).json({
+         success: true,
+         message: 'Sessão terminada'
+      })
+   } catch (err) {
+
+      return res.status(500).json({
+         success: false,
+         message: 'Erro ao processar dados'
+      })
+   }
+
+})
+
 
 app.get('/verificarSessao', async (req, res) => {
 
@@ -1652,6 +1904,4 @@ app.get('/verificarSessao', async (req, res) => {
    })
 })
 
-
-app.listen(3000)
-// module.exports = app;
+module.exports = app;
