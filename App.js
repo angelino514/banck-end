@@ -1090,19 +1090,16 @@ app.delete('/deleteFav', upload.none(), async (req, res) => {
          )
 
       } else {
-
          await db.promise().query(
             `DELETE FROM favoritos
              WHERE produto_id = ? AND browser_id = ?`,
             [produto_id, browserId]
          )
-
       }
       return res.json({
          success: true,
          message: 'Favorito eliminado'
       })
-
    } catch (err) {
       return res.status(500).json({
          success: false,
@@ -1558,6 +1555,7 @@ app.post('/getCartItems', upload.none(), async (req, res) => {
       const { browserId } = req.body
       const token = req.cookies.sessaoUsuario
 
+
       let condicao
       let valor
 
@@ -1873,6 +1871,76 @@ app.delete('/deleteUserSession', upload.none(), async (req, res) => {
 
 })
 
+app.delete('/deleteCartItem', upload.none(), async (req, res) => {
+
+   try {
+
+      const { carrinho_id, browserId } = req.body;
+      const token = req.cookies.sessaoUsuario;
+
+
+      if (!carrinho_id || (!token && !browserId)) {
+         return res.status(400).json({
+            message: 'Dados insuficientes',
+            success: false
+         })
+      }
+
+      let condicao
+      let parms
+
+      if (token) {
+         const usuario = await usuarioSessao(token)
+         if (usuario.success) {
+            condicao = condicaoSQL('usuario')
+            parms = [carrinho_id, usuario.usuarioId]
+         }
+         else {
+            condicao = condicaoSQL('navegador')
+            parms = [carrinho_id, browserId]
+            console.log('Usuario nao autenticado')
+         }
+      }
+
+      if (token == undefined || token == null || token == '') {
+         condicao = condicaoSQL('navegador')
+         parms = [carrinho_id, browserId]
+      }
+
+      const [deleteIten] = await db.promise().query(condicao, parms)
+      if (deleteIten.affectedRows === 0) {
+         return res.status(404).json({
+            message: 'Produto não encontrado',
+            success: false
+         });
+      }
+
+      return res.status(200).json({
+         message: 'Produto eliminado do carrinho',
+         success: true
+      })
+
+      function condicaoSQL(tipo) {
+
+         if (tipo === 'usuario') {
+            return 'DELETE FROM carrinho WHERE id = ? AND usuario_id = ?';
+         }
+
+         if (tipo === 'navegador') {
+            return 'DELETE FROM carrinho WHERE id = ? AND navegador_id = ? AND usuario_id IS NULL';
+         }
+
+      }
+
+   } catch (err) {
+      return res.status(500).json({
+         message: 'Erro ao eliminar produto',
+         success: false
+      })
+   }
+
+});
+
 
 app.get('/verificarSessao', async (req, res) => {
 
@@ -1904,4 +1972,5 @@ app.get('/verificarSessao', async (req, res) => {
    })
 })
 
-module.exports = app;
+// module.exports = app;
+app.listen(3000)
