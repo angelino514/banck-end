@@ -56,14 +56,24 @@ const transporter = nodemailer.createTransport({
    }
 })
 
+
+
 function criarCookie(res, nome, valor, maxAge) {
    res.cookie(nome, valor, {
       httpOnly: true,
-      secure: false,
-      sameSite: "lax",
-      maxAge: maxAge
+      secure: true,
+      sameSite: 'none',
+      maxAge: maxAge,
+      path: '/'
    })
 }
+
+function eliminarCookie(res, nome) {
+   res.clearCookie(nome, {
+      path: '/'
+   })
+}
+
 
 // Iniciar sessao
 app.post('/entrar', upload.none(), async (req, res) => {
@@ -1018,6 +1028,7 @@ async function usuarioSessao(token) {
    }
 }
 
+
 app.post('/favoritosAdd', upload.none(), async (req, res) => {
 
    const token = req.cookies.sessaoUsuario
@@ -1346,8 +1357,6 @@ app.post('/historicoPesquisas', upload.none(), async (req, res) => {
 
 
 app.post('/addCart', upload.none(), async (req, res) => {
-
-
    const {
       produto_id,
       preco,
@@ -1480,9 +1489,7 @@ app.post('/entrarUsaurio', upload.none(), async (req, res) => {
 
          const token = crypto.randomBytes(32).toString("hex")
          criarCookie(res, 'sessaoUsuario', token, 6 * 60 * 60 * 1000)
-
          const usuarioId = user.id
-
          const expiracao = new Date(
             Date.now() + 6 * 60 * 60 * 1000
          )
@@ -1515,27 +1522,29 @@ app.post('/entrarUsaurio', upload.none(), async (req, res) => {
          })
       }
 
-
    } catch (error) {
       return res.status(500).json({
          success: false,
          message: 'Erro interno ao iniciar sessão.'
       })
    }
-
 })
 
 app.post('/getCartItems', upload.none(), async (req, res) => {
 
    try {
-
       const { browserId } = req.body
       const token = req.cookies.sessaoUsuario
 
       let condicao
       let valor
 
-      const result = token
+      function verificarToken(token) {
+         if (token) return true
+         if (!token) return false
+      }
+
+      const result = verificarToken(token)
          ? await usuarioSessao(token)
          : { success: false }
 
@@ -1715,7 +1724,6 @@ app.post('/register', upload.none(), async (req, res) => {
       })
    }
 
-
    try {
 
       // Verificar se o email já existe
@@ -1810,6 +1818,7 @@ app.delete('/deleteUserSession', upload.none(), async (req, res) => {
             message: 'Sessão não encontrada'
          })
       }
+
       const usuario = await usuarioSessao(token)
       if (!usuario.success) {
          return res.status(401).json({
@@ -1835,6 +1844,8 @@ app.delete('/deleteUserSession', upload.none(), async (req, res) => {
          })
       }
 
+
+      eliminarCookie(res, 'sessaoUsuario')
       return res.status(200).json({
          success: true,
          message: 'Sessão terminada'
@@ -1853,6 +1864,7 @@ app.delete('/deleteCartItem', upload.none(), async (req, res) => {
    try {
       const { carrinho_id, browserId } = req.body;
       const token = req.cookies.sessaoUsuario;
+
 
       const result = token
          ? await usuarioSessao(token)
@@ -1908,7 +1920,7 @@ app.delete('/deleteCartItem', upload.none(), async (req, res) => {
 });
 
 
-app.get('/verificarSessao', async (req, res) => {
+app.get('/verificarSessao', upload.none(), async (req, res) => {
 
    const token = req.cookies.sessaoUsuario
    if (!token) {
@@ -1930,11 +1942,11 @@ app.get('/verificarSessao', async (req, res) => {
       WHERE id = ?
    `
    const [dadosUsuario] = await db.promise().query(sql, [usuarioId])
-
    return res.status(200).json({
       success: true,
       usuario: dadosUsuario
    })
 })
 
-module.exports = app;
+// module.exports = app;
+app.listen(3000)
