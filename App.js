@@ -19,7 +19,7 @@ const origensPermitidas = [
    'http://localhost:5173',
    'https://painel-admin-amber-pi.vercel.app',
    'https://angelino-eurico-dev.vercel.app',
-   'https://ecommerce-react-gamma-ruddy.vercel.app/'
+   'https://ecommerce-react-gamma-ruddy.vercel.app'
 ]
 
 app.use(cors({
