@@ -1218,18 +1218,6 @@ app.post('/searchStore/:action/:values', upload.none(), async (req, res) => {
          })
       }
 
-      const sqlExsite = `SELECT id FROM historico_pesquisas WHERE browser_id = ? AND pesquisa LIKE ? LIMIT 1`
-
-      const [existeValues] = await db.promise().query(sqlExsite, [browserId, values])
-
-      if (existeValues.length === 0) {
-         await db.promise().query(
-            `INSERT INTO historico_pesquisas (browser_id, pesquisa)
-         VALUES (?, ?)`,
-            [browserId, values]
-         )
-      }
-
       const limit = Number(req.query.limit) || 10
       const offset = Number(req.query.offset) || 0
 
@@ -1237,7 +1225,17 @@ app.post('/searchStore/:action/:values', upload.none(), async (req, res) => {
       let params
 
       if (action === 'Categories') {
-         sql = `
+
+         if (values === 'todas') {
+            sql = `
+            SELECT *
+            FROM produtos ORDER BY id
+            LIMIT ? OFFSET ?`
+            params = [limit, offset]
+         }
+
+         else {
+            sql = `
             SELECT *
             FROM produtos
             WHERE categoria = ?
@@ -1245,9 +1243,11 @@ app.post('/searchStore/:action/:values', upload.none(), async (req, res) => {
             LIMIT ? OFFSET ?
          `
 
-         params = [values, limit, offset]
+            params = [values, limit, offset]
+         }
 
       } else if (action === 'Search') {
+
          sql = `
             SELECT *
             FROM produtos
@@ -1259,6 +1259,19 @@ app.post('/searchStore/:action/:values', upload.none(), async (req, res) => {
 
          const pesquisa = `%${values}%`
          params = [pesquisa, pesquisa, pesquisa, pesquisa, limit, offset]
+
+
+         const sqlExsite = `SELECT id FROM historico_pesquisas WHERE browser_id = ? AND pesquisa LIKE ? LIMIT 1`
+
+         const [existeValues] = await db.promise().query(sqlExsite, [browserId, values])
+
+         if (existeValues.length === 0) {
+            await db.promise().query(
+               `INSERT INTO historico_pesquisas (browser_id, pesquisa)
+         VALUES (?, ?)`,
+               [browserId, values]
+            )
+         }
 
       } else {
          return res.status(400).json({
