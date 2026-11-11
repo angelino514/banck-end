@@ -1949,9 +1949,7 @@ app.get('/verificarSessao', upload.none(), async (req, res) => {
    })
 })
 
-<<<<<<< HEAD
-module.exports = app;
-=======
+
 app.post('/pedidos', upload.none(), async (req, res) => {
 
    const token = req.cookies.sessaoUsuario
@@ -2057,4 +2055,3 @@ function verificarToken(token) {
 }
 
 module.exports = app;
->>>>>>> 956c18f (feat : Actualização novas funcionalidades e integração de pagamento por API : Multicaixa express e pagamento por Referência)
