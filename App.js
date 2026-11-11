@@ -1949,4 +1949,112 @@ app.get('/verificarSessao', upload.none(), async (req, res) => {
    })
 })
 
+<<<<<<< HEAD
 module.exports = app;
+=======
+app.post('/pedidos', upload.none(), async (req, res) => {
+
+   const token = req.cookies.sessaoUsuario
+   if (!verificarToken(token)) {
+      return res.status(401).json({
+         message: "Utilizador não autenticado",
+         success: false
+      });
+   }
+
+   const result = await usuarioSessao(token);
+   if (!result.success) {
+      return res.status(401).json({
+         message: "Sessão inválida",
+         success: false
+      });
+   }
+
+   const { pagamento, envio, produtos, telefone } = req.body
+   const listaProdutos = JSON.parse(produtos);
+
+   let precoEnvio = (metodo) => {
+      if (metodo == 'economico') {
+         return 0
+      }
+      if (metodo === 'padrao') {
+         return 1500
+      }
+      if (metodo === 'expresso') {
+         return 3000
+      }
+   }
+
+   let pagemenoSelecionado = (metodo) => {
+      if (metodo === "express") {
+         return "multicaixa_express";
+      }
+
+      if (metodo === "referencia") {
+         return "multicaixa_reference";
+      }
+      return null;
+   };
+
+   const subtotal = listaProdutos.reduce(
+      (total, produto) =>
+         total +
+         produto.preco * produto.quantidade,
+      0
+   );
+
+   const total = subtotal + precoEnvio(envio)
+   const idAleatorio = crypto.randomUUID()
+
+   const inf = await criarPagamentoBitPay({
+      pedidoId: idAleatorio,
+      valorTotal: total,
+      metodo: pagemenoSelecionado(pagamento),
+      telefone: telefone
+   })
+
+   async function criarPagamentoBitPay({ pedidoId, valorTotal, metodo, telefone }) {
+      const response = await fetch(
+         "https://api-sandbox.bitpay.ao/v1/payment_intents",
+         {
+            method: "POST",
+            headers: {
+               "Authorization": `Bearer ${process.env.BITPAY_SECRET_KEY}`,
+               "Content-Type": "application/json",
+               "Idempotency-Key": `pedido-${pedidoId}`
+            },
+            body: JSON.stringify({
+               amount: valorTotal,
+               currency: "AOA",
+               payment_method: metodo,
+               ...(metodo === "multicaixa_express"
+                  ? { customer: { mobile: telefone } }
+                  : {}),
+               merchant_reference: `PED-${pedidoId}`
+            })
+         }
+      );
+
+      const dados = await response.json();
+      if (!response.ok) {
+         throw new Error(
+            dados.error?.message || "Erro ao criar pagamento BitPay"
+         );
+      }
+      return dados;
+   }
+
+   return res.json({
+      message: 'Welcome',
+      success: true
+   });
+
+});
+
+function verificarToken(token) {
+   if (token) return true
+   return false
+}
+
+module.exports = app;
+>>>>>>> 956c18f (feat : Actualização novas funcionalidades e integração de pagamento por API : Multicaixa express e pagamento por Referência)
