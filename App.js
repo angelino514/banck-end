@@ -1876,6 +1876,7 @@ app.delete('/deleteUserSession', upload.none(), async (req, res) => {
 
 app.delete('/deleteCartItem', upload.none(), async (req, res) => {
 
+
    try {
       const { carrinho_id, browserId } = req.body;
       const token = req.cookies.sessaoUsuario;
@@ -2025,7 +2026,6 @@ app.post('/pedidos', upload.none(), async (req, res) => {
    const total = subtotal + precoEnvio(envio)
    const idAleatorio = crypto.randomUUID()
 
-
    async function criarPagamentoBitPay({ pedidoId, valorTotal, metodo, telefone }) {
       const response = await fetch(
          "https://api-sandbox.bitpay.ao/v1/payment_intents",
@@ -2048,11 +2048,11 @@ app.post('/pedidos', upload.none(), async (req, res) => {
          }
       );
 
-      const dados = await response.json();
+      const dados = await response.json()
       if (!response.ok) {
          return {
             success: false,
-            message: 'Não foi possível realizar o pagamento tente novamente'
+            message: 'Não foi possível realizar o pagamento tente novamente',
          }
       }
 
@@ -2090,7 +2090,7 @@ app.post('/pedidos', upload.none(), async (req, res) => {
       })
 
       await db.promise().query(sqlPedidos, [
-         result.usuarioId,
+         18,
          item.nome,
          variacoes,
          item.quantidade,
@@ -2108,7 +2108,8 @@ app.post('/pedidos', upload.none(), async (req, res) => {
    }
 
    return res.status(200).json({
-      success: true
+      success: true,
+      message: 'Pedido enviado com sucesso'
    })
 
 })
