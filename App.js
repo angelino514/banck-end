@@ -19,7 +19,7 @@ const origensPermitidas = [
    'http://localhost:5173',
    'https://painel-admin-amber-pi.vercel.app',
    'https://angelino-eurico-dev.vercel.app',
-   'https://ecommerce-react-gamma-ruddy.vercel.app' ,
+   'https://ecommerce-react-gamma-ruddy.vercel.app',
    'https://accoderservices-7b7f.vercel.app'
 ]
 
@@ -1985,6 +1985,13 @@ app.post('/pedidos', upload.none(), async (req, res) => {
    const { pagamento, envio, produtos, telefone } = req.body
    const listaProdutos = JSON.parse(produtos);
 
+   if (!pagamento || !envio || !telefone || listaProdutos.length === 0) {
+      return res.status(400).json({
+         success: false,
+         message: "Dados Inválidos"
+      });
+   }
+
    let precoEnvio = (metodo) => {
       if (metodo == 'economico') {
          return 0
@@ -2018,12 +2025,6 @@ app.post('/pedidos', upload.none(), async (req, res) => {
    const total = subtotal + precoEnvio(envio)
    const idAleatorio = crypto.randomUUID()
 
-   const inf = await criarPagamentoBitPay({
-      pedidoId: idAleatorio,
-      valorTotal: total,
-      metodo: pagemenoSelecionado(pagamento),
-      telefone: telefone
-   })
 
    async function criarPagamentoBitPay({ pedidoId, valorTotal, metodo, telefone }) {
       const response = await fetch(
@@ -2049,23 +2050,72 @@ app.post('/pedidos', upload.none(), async (req, res) => {
 
       const dados = await response.json();
       if (!response.ok) {
-         throw new Error(
-            dados.error?.message || "Erro ao criar pagamento BitPay"
-         );
+         return {
+            success: false,
+            message: 'Não foi possível realizar o pagamento tente novamente'
+         }
       }
-      return dados;
+
+      return {
+         success: true,
+         id_pagamento: dados.id,
+         estado_pagemento: dados.status
+      }
    }
 
-   return res.json({
-      message: 'Welcome',
-      success: true
-   });
+   const inf = await criarPagamentoBitPay({
+      pedidoId: idAleatorio,
+      valorTotal: total,
+      metodo: pagemenoSelecionado(pagamento),
+      telefone: telefone
+   })
 
-});
+   if (!inf.success) {
+      return res.status(400).json({
+         success: false,
+         message: inf.message
+      });
+   }
+
+   const sqlPedidos = `INSERT INTO pedidos 
+   (usuario_id , nome , variacoes , quantidade , preco , total , pagamento , pendente , id_pagamento)
+   VALUES (? , ? , ? , ? , ? , ? , ? , ? , ?)`
+   for (const item of listaProdutos) {
+
+      const variacoes = JSON.stringify({
+         especificacao_valor: item.especificacao_valor,
+         outra_especificacao_valor: item.outra_especificacao_valor,
+         especificacoes_selecionadas: item.especificacoes_selecionadas,
+         outras_especificacoes_selecionadas: item.outras_especificacoes_selecionadas
+      })
+
+      await db.promise().query(sqlPedidos, [
+         result.usuarioId,
+         item.nome,
+         variacoes,
+         item.quantidade,
+         item.preco,
+         item.quantidade * item.preco,
+         false,
+         true,
+         inf.id_pagamento
+      ])
+
+      const [eliminado] = await db.promise().query(
+         'DELETE FROM carrinho WHERE id = ? AND usuario_id = ?',
+         [item.id, result.usuarioId]
+      )
+   }
+
+   return res.status(200).json({
+      success: true
+   })
+
+})
 
 function verificarToken(token) {
    if (token) return true
    return false
 }
 
-module.exports = app;
+module.exports = app
