@@ -1981,7 +1981,6 @@ app.get('/verificarSessao', upload.none(), async (req, res) => {
    })
 })
 
-
 app.post('/pedidos', upload.none(), async (req, res) => {
 
    const token = req.cookies.sessaoUsuario
@@ -2161,39 +2160,69 @@ app.post('/pedidosPendedente', upload.none(), async (req, res) => {
 
 app.post('/webhooks/bitpay', express.raw({ type: 'application/json' }),
    async (req, res) => {
-
       try {
-         const evento = JSON.parse(
-            req.body.toString('utf8')
-         );
+         const evento = Buffer.isBuffer(req.body)
+            ? JSON.parse(req.body.toString('utf8'))
+            : req.body;
 
-         if (evento.type === 'test.ping') {
+         const [inf] = await db.promise().query(
+            `SELECT id, usuario_id
+             FROM pedidos
+             WHERE id_pagamento = ?`,
+            [evento.data.id]
+         )
+
+         if (inf.length === 0) {
             return res.sendStatus(200);
          }
 
-         if (evento.type === 'payment.succeeded') {
-            const pagamentoId = evento.data.id;
-            const sql = `
-               UPDATE pedidos
-               SET pagamento = TRUE
-               WHERE id_pagamento = ?
-            `;
+         const sql = `
+              INSERT INTO historico_pagamentos (
+              usuario_id,
+              pedido_id,
+              evento_id,
+              pagamento_id,
+              tipo_evento,
+              estado,
+              valor,
+              moeda,
+              metodo
+               ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`;
 
-            const [resultado] = await db.promise().query(
-               sql,
-               [pagamentoId]
-            );
+         await db.promise().execute(sql, [
+            inf[0].usuario_id,
+            inf[0].id,
+            evento.id,
+            evento.data.id,
+            evento.type,
+            evento.data.status,
+            evento.data.amount,
+            evento.data.currency,
+            evento.data.payment_method
+         ])
+
+         if (
+            evento.type === 'payment.succeeded' &&
+            evento.data.status === 'SUCCEEDED'
+         ) {
+            await db.promise().query(
+               `UPDATE pedidos
+                SET pagamento = TRUE
+                WHERE id_pagamento = ?`,
+               [evento.data.id]
+            )
+
+            await db.promise().query(`UPDATE historico_pagamentos SET estado = ?
+               WHERE pagamento_id = ? AND usuario_id = ?` ,
+               [evento.data.status, evento.data.id, inf[0].usuario_id]
+            )
          }
-         return res.sendStatus(200);
-
+         return res.sendStatus(200)
       } catch (erro) {
-         console.error('Erro no Webhook:', erro);
-         return res.sendStatus(500);
+         return res.sendStatus(500)
       }
    }
-);
-
-
+)
 
 function verificarToken(token) {
    if (token) return true
