@@ -1123,20 +1123,32 @@ app.delete('/deleteFav', upload.none(), async (req, res) => {
 
 app.post('/pegarFav', upload.none(), async (req, res) => {
 
-   const token = req.cookies.sessaoUsuario
-   const { browserId } = req.body
+   try {
 
-   if (!token) {
-      await favoritos({ condicao: 'browser_id', valor: browserId })
-   } else {
-      const usuario = await usuarioSessao(token)
-      if (usuario.success) {
-         await favoritos({ condicao: 'usuario_id', valor: usuario.usuarioId })
+      const token = req.cookies.sessaoUsuario
+      const { browserId } = req.body
+
+      if (!token && !browserId) {
+         return res.status(500).json({
+            success: false,
+            message: 'Falha ao processar pedidos'
+         })
       }
-   }
 
-   async function favoritos({ condicao, valor }) {
-      const sql = `
+      if (!verificarToken(token)) {
+         await favoritos({ condicao: 'browser_id', valor: browserId })
+         return
+      }
+
+      const result = await usuarioSessao(token)
+      if (!result.success) {
+         await favoritos({ condicao: 'browser_id', valor: browserId })
+         return
+      }
+      await favoritos({ condicao: 'usuario_id', valor: result.usuarioId })
+
+      async function favoritos({ condicao, valor }) {
+         const sql = `
       SELECT
          favoritos.id AS favorito_id,
          favoritos.produto_id,
@@ -1145,11 +1157,17 @@ app.post('/pegarFav', upload.none(), async (req, res) => {
       INNER JOIN produtos
       ON favoritos.produto_id = produtos.id
       WHERE favoritos.${condicao} = ?`
+         const [itens] = await db.promise().query(sql, [valor])
+         return res.status(200).json({
+            success: true,
+            favoritos: itens
+         })
+      }
 
-      const [itens] = await db.promise().query(sql, [valor])
-      return res.status(200).json({
-         success: true,
-         favoritos: itens
+   } catch (erro) {
+      return res.status(500).json({
+         success: false,
+         message: 'Falha ao processar pedidos'
       })
    }
 
@@ -1372,6 +1390,7 @@ app.post('/historicoPesquisas', upload.none(), async (req, res) => {
 
 
 app.post('/addCart', upload.none(), async (req, res) => {
+
    const {
       produto_id,
       preco,
@@ -1935,7 +1954,6 @@ app.delete('/deleteCartItem', upload.none(), async (req, res) => {
 
 });
 
-
 app.get('/verificarSessao', upload.none(), async (req, res) => {
 
    const token = req.cookies.sessaoUsuario
@@ -1951,7 +1969,6 @@ app.get('/verificarSessao', upload.none(), async (req, res) => {
       return res.status(401).json(resultado)
    }
    const usuarioId = resultado.usuarioId
-
    const sql = `
       SELECT *
       FROM usuarios
@@ -2078,8 +2095,8 @@ app.post('/pedidos', upload.none(), async (req, res) => {
    }
 
    const sqlPedidos = `INSERT INTO pedidos 
-   (usuario_id , nome , variacoes , quantidade , preco , total , pagamento , pendente , id_pagamento)
-   VALUES (? , ? , ? , ? , ? , ? , ? , ? , ?)`
+   (usuario_id , nome , variacoes , quantidade , preco , total , pagamento , pendente , id_pagamento , produto_id)
+   VALUES (? , ? , ? , ? , ? , ? , ? , ? , ? , ?)`
    for (const item of listaProdutos) {
 
       const variacoes = JSON.stringify({
@@ -2098,7 +2115,8 @@ app.post('/pedidos', upload.none(), async (req, res) => {
          item.quantidade * item.preco,
          false,
          true,
-         inf.id_pagamento
+         inf.id_pagamento,
+         item.produto_id
       ])
 
       const [eliminado] = await db.promise().query(
@@ -2114,9 +2132,73 @@ app.post('/pedidos', upload.none(), async (req, res) => {
 
 })
 
+app.post('/pedidosPendedente', upload.none(), async (req, res) => {
+
+   const token = req.cookies.sessaoUsuario
+   if (!verificarToken(token)) {
+      return res.status(401).json({
+         message: "Utilizador não autenticado",
+         success: false
+      });
+   }
+
+   const result = await usuarioSessao(token);
+   if (!result.success) {
+      return res.status(401).json({
+         message: "Sessão inválida",
+         success: false
+      });
+   }
+
+   const sql = `SELECT * FROM pedidos WHERE usuario_id = ?`
+   const [pedidos] = await db.promise().query(sql, [result.usuarioId])
+   return res.status(200).json({
+      success: true,
+      pedidos: pedidos
+   })
+
+})
+
+app.post('/webhooks/bitpay', express.raw({ type: 'application/json' }),
+   async (req, res) => {
+
+      try {
+         const evento = JSON.parse(
+            req.body.toString('utf8')
+         );
+
+         if (evento.type === 'test.ping') {
+            return res.sendStatus(200);
+         }
+
+         if (evento.type === 'payment.succeeded') {
+            const pagamentoId = evento.data.id;
+            const sql = `
+               UPDATE pedidos
+               SET pagamento = TRUE
+               WHERE id_pagamento = ?
+            `;
+
+            const [resultado] = await db.promise().query(
+               sql,
+               [pagamentoId]
+            );
+         }
+         return res.sendStatus(200);
+
+      } catch (erro) {
+         console.error('Erro no Webhook:', erro);
+         return res.sendStatus(500);
+      }
+   }
+);
+
+
+
 function verificarToken(token) {
    if (token) return true
    return false
 }
 
 module.exports = app
+
