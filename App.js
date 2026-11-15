@@ -1981,6 +1981,8 @@ app.get('/verificarSessao', upload.none(), async (req, res) => {
    })
 })
 
+
+
 app.post('/pedidos', upload.none(), async (req, res) => {
 
    const token = req.cookies.sessaoUsuario
@@ -2229,5 +2231,64 @@ function verificarToken(token) {
    return false
 }
 
+app.post('/editarPerfil', upload.none(), async (req, res) => {
+
+   try {
+      
+      const token = req.cookies.sessaoUsuario
+      if (!verificarToken(token)) {
+         return res.status(401).json({
+            success: false,
+            message: 'Sessão inválida'
+         })
+      }
+
+      const result = await usuarioSessao(token);
+      if (!result.success) {
+         return res.status(401).json({
+            success: false,
+            message: 'Utilizador não autenticado'
+         })
+      }
+
+      const { nome, sobrenome, email, telefone } = req.body;
+
+      if (!nome || !sobrenome || !email || !telefone) {
+         return res.status(400).json({
+            success: false,
+            message: 'Preencha todos os campos'
+         })
+      }
+
+      const [editarUsuario] = await db.promise().query(
+         `UPDATE usuarios
+          SET nome = ?, sobrenome = ?, email = ?, telefone = ?
+          WHERE id = ?`,
+         [nome, sobrenome, email, telefone, result.usuarioId]
+      )
+
+      if (editarUsuario.affectedRows === 0) {
+         return res.status(404).json({
+            success: false,
+            message: 'Nenhuma alteração realizada ou utilizador não encontrado'
+         })
+      }
+      return res.status(200).json({
+         success: true,
+         message: 'Perfil atualizado com sucesso'
+      })
+
+   } catch (erro) {
+      return res.status(500).json({
+         success: false,
+         message: erro.code === 'ER_DUP_ENTRY'
+            ? 'Email ou telefone já utilizado'
+            : 'Falha ao processar pedido'
+      })
+   }
+
+})
+
 module.exports = app
+
 
