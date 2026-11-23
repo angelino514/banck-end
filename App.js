@@ -229,7 +229,6 @@ app.post("/adiminPedidos", upload.none(), async (req, res) => {
       pedidos,
     });
   } catch (error) {
-  
     return res.status(500).json({
       success: false,
       message: "Erro interno ao consultar pedidos",
@@ -773,6 +772,51 @@ app.delete("/eliminar/:id", async (req, res) => {
     erro: true,
     mensagem: "Falha ao eliminar o produto tente novamente",
   });
+});
+
+app.post("/concluirEntrega", upload.none(), async (req, res) => {
+  const token = req.cookies.sessao;
+  try {
+    if (!verificarToken(token)) {
+      return res.status(401).json({
+        success: false,
+        message: "Sessão expirada ou não autorizada. Faça login novamente.",
+      });
+    }
+
+    const { id_pedido } = req.body;
+    if (!id_pedido || id_pedido <= 0) {
+      return res.status(400).json({
+        success: false,
+        message: "ID do pedido inválido ou não fornecido.",
+      });
+    }
+
+    const [resultado] = await db.promise().query(
+      `UPDATE pedidos 
+       SET pendente = 0
+       WHERE id = ? AND pendente = 1`,
+      [id_pedido],
+    );
+
+    if (resultado.affectedRows === 0) {
+      return res.status(404).json({
+        success: false,
+        message: "Pedido não encontrado ou já concluído",
+        resultado,
+      });
+    }
+
+    return res.status(200).json({
+      success: true,
+      message: "Entrega concluída com sucesso",
+    });
+  } catch (erro) {
+    return res.status(500).json({
+      success: false,
+      message: "Erro ao atualizar a entrega",
+    });
+  }
 });
 
 app.get("/buscareditar/:id", async (req, res) => {
@@ -2288,5 +2332,4 @@ app.post("/editarPerfil", upload.none(), async (req, res) => {
   }
 });
 
-module.exports = app
-
+module.exports = app;
