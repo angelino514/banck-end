@@ -194,6 +194,49 @@ async function verificarSessao({ cookie }) {
   }
 }
 
+app.post("/adiminPedidos", upload.none(), async (req, res) => {
+  try {
+    const token = req.cookies.sessao;
+
+    if (!verificarToken(token)) {
+      return res.status(401).json({
+        success: false,
+        message: "Acesso não autorizado",
+      });
+    }
+
+    const [pedidos] = await db.promise().query(`
+      SELECT 
+        pedidos.*,
+        usuarios.nome,
+        usuarios.email, 
+        usuarios.sobrenome ,
+        usuarios.telefone
+      FROM pedidos
+      INNER JOIN usuarios
+        ON pedidos.usuario_id = usuarios.id
+    `);
+
+    if (pedidos.length === 0) {
+      return res.status(200).json({
+        success: false,
+        message: "Ainda não existem pedidos",
+      });
+    }
+
+    return res.status(200).json({
+      success: true,
+      pedidos,
+    });
+  } catch (error) {
+  
+    return res.status(500).json({
+      success: false,
+      message: "Erro interno ao consultar pedidos",
+    });
+  }
+});
+
 // Permissão
 async function permisao(token) {
   const sessao = await verificarSessao({
@@ -2085,7 +2128,7 @@ app.post("/pedidosPendedente", upload.none(), async (req, res) => {
     return res.status(401).json({
       message: "Utilizador não autenticado",
       success: false,
-    })
+    });
   }
 
   const result = await usuarioSessao(token);
@@ -2093,10 +2136,10 @@ app.post("/pedidosPendedente", upload.none(), async (req, res) => {
     return res.status(401).json({
       message: "Sessão inválida",
       success: false,
-    })
+    });
   }
 
-  const usuario_id = result.usuarioId
+  const usuario_id = result.usuarioId;
   const [pedidos] = await db
     .promise()
     .query("SELECT * FROM pedidos WHERE usuario_id = ?", [usuario_id]);
@@ -2105,14 +2148,14 @@ app.post("/pedidosPendedente", upload.none(), async (req, res) => {
     return res.status(200).json({
       success: true,
       pedidos: pedidos,
-    })
+    });
   }
 
   return res.status(200).json({
     success: false,
     message: "Você ainda não possui nenhum pedido.",
-  })
-})
+  });
+});
 
 app.post(
   "/webhooks/bitpay",
@@ -2245,5 +2288,5 @@ app.post("/editarPerfil", upload.none(), async (req, res) => {
   }
 });
 
-// module.exports = app
-app.listen(3000);
+module.exports = app
+
